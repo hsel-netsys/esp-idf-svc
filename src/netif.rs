@@ -235,21 +235,28 @@ impl EspNetif {
         {
             ipv4::Configuration::Client(ref ip_conf) => (
                 esp_netif_inherent_config_t {
-                    flags: match ip_conf {
-                        ipv4::ClientConfiguration::DHCP(_) => {
+                    flags: match (ip_conf, conf.stack) {
+                        (_, NetifStack::Ppp) => esp_netif_flags_ESP_NETIF_FLAG_IS_PPP,
+                        (ipv4::ClientConfiguration::DHCP(_), _) => {
                             esp_netif_flags_ESP_NETIF_DHCP_CLIENT
                                 | esp_netif_flags_ESP_NETIF_FLAG_GARP
                                 | esp_netif_flags_ESP_NETIF_FLAG_EVENT_IP_MODIFIED
                         }
-                        ipv4::ClientConfiguration::Fixed(_) => {
+                        (ipv4::ClientConfiguration::Fixed(_), _) => {
                             esp_netif_flags_ESP_NETIF_FLAG_GARP
                                 | esp_netif_flags_ESP_NETIF_FLAG_EVENT_IP_MODIFIED
                         }
                     },
                     mac: initial_mac,
                     ip_info: ptr::null(),
-                    get_ip_event: ip_event_t_IP_EVENT_STA_GOT_IP,
-                    lost_ip_event: ip_event_t_IP_EVENT_STA_LOST_IP,
+                    get_ip_event: match conf.stack {
+                        NetifStack::Ppp => ip_event_t_IP_EVENT_PPP_GOT_IP,
+                        _ => ip_event_t_IP_EVENT_STA_GOT_IP,
+                    },
+                    lost_ip_event: match conf.stack {
+                        NetifStack::Ppp => ip_event_t_IP_EVENT_PPP_LOST_IP,
+                        _ => ip_event_t_IP_EVENT_STA_LOST_IP,
+                    },
                     if_key: c_if_key.as_c_str().as_ptr() as _,
                     if_desc: c_if_description.as_c_str().as_ptr() as _,
                     route_prio: conf.route_priority as _,
@@ -784,6 +791,14 @@ where
         let wait = crate::eventloop::Wait::new::<IpEvent>(&self.event_loop)?;
 
         wait.wait_while(matcher, timeout)
+    }
+
+    pub fn netif(&self) -> &T {
+        &self.netif
+    }
+
+    pub fn netif_mut(&mut self) -> &mut T {
+        &mut self.netif
     }
 }
 
